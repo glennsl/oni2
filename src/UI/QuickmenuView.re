@@ -29,6 +29,7 @@ module Styles = {
       fontSize(14),
       width(Constants.menuWidth - 50),
       cursor(Revery.MouseCursors.pointer),
+
     ];
 
   let label =
