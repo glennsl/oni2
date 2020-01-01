@@ -5,15 +5,39 @@
  */
 
 module Core = Oni_Core;
-module Model = Oni_Model;
 
-open Model;
-open Model.Actions;
+open Oni_Model;
+open Actions;
+
+let setActive = (windowId, editorGroupId, state: State.t) =>
+  {
+    ...state,
+    windowManager: {
+      ...state.windowManager,
+      activeWindowId: windowId,
+    },
+    editorGroups: EditorGroups.setActive(editorGroupId, state.editorGroups),
+  }
+  |> FocusManager.push(Editor);
+
+let move = (moveFunc, state: State.t) => {
+  let windowId = moveFunc(state.windowManager);
+  let maybeEditorGroupId =
+    WindowTree.getEditorGroupIdFromSplitId(
+      windowId,
+      state.windowManager.windowTree,
+    );
+
+  switch (maybeEditorGroupId) {
+  | Some(editorGroupId) => setActive(windowId, editorGroupId, state)
+  | None => state
+  };
+};
 
 let start = () => {
   let quitEffect =
     Isolinear.Effect.createWithDispatch(~name="windows.quitEffect", dispatch =>
-      dispatch(Model.Actions.Quit(false))
+      dispatch(Actions.Quit(false))
     );
 
   let initializeDefaultViewEffect = (state: State.t) =>
@@ -27,51 +51,55 @@ let start = () => {
       dispatch(Actions.AddSplit(Vertical, editor));
     });
 
-  let windowUpdater = (s: Model.State.t, action: Model.Actions.t) =>
+  let windowUpdater = (state: State.t, action: Actions.t) =>
     switch (action) {
-    | WindowSetActive(splitId, _) =>
-      {
-        ...s,
-        windowManager: {
-          ...s.windowManager,
-          activeWindowId: splitId,
-        },
-      }
-      |> FocusManager.push(Editor)
+    | WindowSetActive(splitId, editorGroupId) =>
+      setActive(splitId, editorGroupId, state)
 
     | WindowTreeSetSize(width, height) => {
-        ...s,
+        ...state,
         windowManager:
-          WindowManager.setTreeSize(width, height, s.windowManager),
+          WindowManager.setTreeSize(width, height, state.windowManager),
       }
 
+    | WindowMoveLeft => move(WindowManager.moveLeft, state)
+
+    | WindowMoveRight => move(WindowManager.moveRight, state)
+
+    | WindowMoveUp => move(WindowManager.moveUp, state)
+
+    | WindowMoveDown => move(WindowManager.moveDown, state)
+
     | AddSplit(direction, split) => {
-        ...s,
+        ...state,
         // Fix #686: If we're adding a split, we should turn off zen mode... unless it's the first split being added.
         zenMode:
-          s.zenMode
-          && List.length(WindowTree.getSplits(s.windowManager.windowTree))
+          state.zenMode
+          && List.length(
+               WindowTree.getSplits(state.windowManager.windowTree),
+             )
           == 0,
         windowManager: {
-          ...s.windowManager,
+          ...state.windowManager,
           activeWindowId: split.id,
           windowTree:
             WindowTree.addSplit(
-              ~target=Some(s.windowManager.activeWindowId),
+              ~target=Some(state.windowManager.activeWindowId),
               ~position=After,
               direction,
               split,
-              s.windowManager.windowTree,
+              state.windowManager.windowTree,
             ),
         },
       }
 
     | RemoveSplit(id) => {
-        ...s,
+        ...state,
         zenMode: false,
         windowManager: {
-          ...s.windowManager,
-          windowTree: WindowTree.removeSplit(id, s.windowManager.windowTree),
+          ...state.windowManager,
+          windowTree:
+            WindowTree.removeSplit(id, state.windowManager.windowTree),
         },
       }
 
@@ -80,52 +108,54 @@ let start = () => {
 
       /* Remove splits */
       let windowTree =
-        s.windowManager.windowTree
+        state.windowManager.windowTree
         |> WindowTree.getSplits
         |> List.filter((split: WindowTree.split) =>
-             Model.EditorGroups.isEmpty(split.editorGroupId, s.editorGroups)
+             EditorGroups.isEmpty(split.editorGroupId, state.editorGroups)
            )
         |> List.fold_left(
              (prev: WindowTree.t, curr: WindowTree.split) =>
                WindowTree.removeSplit(curr.id, prev),
-             s.windowManager.windowTree,
+             state.windowManager.windowTree,
            );
 
       let windowManager =
-        WindowManager.ensureActive({...s.windowManager, windowTree});
+        WindowManager.ensureActive({...state.windowManager, windowTree});
 
-      {...s, windowManager};
+      {...state, windowManager};
 
-    | OpenFileByPath(_) => FocusManager.push(Editor, s)
+    | OpenFileByPath(_) => FocusManager.push(Editor, state)
 
+    | WindowRotateForward
     | Command("view.rotateForward") => {
-        ...s,
+        ...state,
         windowManager: {
-          ...s.windowManager,
+          ...state.windowManager,
           windowTree:
             WindowTree.rotateForward(
-              s.windowManager.activeWindowId,
-              s.windowManager.windowTree,
+              state.windowManager.activeWindowId,
+              state.windowManager.windowTree,
             ),
         },
       }
 
+    | WindowRotateBackward
     | Command("view.rotateBackward") => {
-        ...s,
+        ...state,
         windowManager: {
-          ...s.windowManager,
+          ...state.windowManager,
           windowTree:
             WindowTree.rotateBackward(
-              s.windowManager.activeWindowId,
-              s.windowManager.windowTree,
+              state.windowManager.activeWindowId,
+              state.windowManager.windowTree,
             ),
         },
       }
 
-    | _ => s
+    | _ => state
     };
 
-  let updater = (state: Model.State.t, action: Model.Actions.t) => {
+  let updater = (state: State.t, action: Actions.t) => {
     let state = windowUpdater(state, action);
 
     let effect =

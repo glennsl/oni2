@@ -304,36 +304,20 @@ let start =
 
   let _: unit => unit =
     Vim.Window.onMovement((movementType, _count) => {
-      Log.trace("Vim.Window.onMovement");
-      let currentState = getState();
-
-      let move = moveFunc => {
-        let windowId = moveFunc(currentState.windowManager);
-        let maybeEditorGroupId =
-          WindowTree.getEditorGroupIdFromSplitId(
-            windowId,
-            currentState.windowManager.windowTree,
-          );
-
-        switch (maybeEditorGroupId) {
-        | Some(editorGroupId) =>
-          dispatch(Actions.WindowSetActive(windowId, editorGroupId))
-        | None => ()
-        };
-      };
+      Log.info("Vim.Window.onMovement");
 
       switch (movementType) {
       | FullLeft
-      | OneLeft => move(WindowManager.moveLeft)
+      | OneLeft => dispatch(Actions.WindowMoveLeft)
       | FullRight
-      | OneRight => move(WindowManager.moveRight)
+      | OneRight => dispatch(Actions.WindowMoveRight)
       | FullDown
-      | OneDown => move(WindowManager.moveDown)
+      | OneDown => dispatch(Actions.WindowMoveDown)
       | FullUp
-      | OneUp => move(WindowManager.moveUp)
-      | RotateDownwards => dispatch(Actions.Command("view.rotateForward"))
-      | RotateUpwards => dispatch(Actions.Command("view.rotateBackward"))
-      | _ => move(windowManager => windowManager.activeWindowId)
+      | OneUp => dispatch(Actions.WindowMoveUp)
+      | RotateDownwards => dispatch(Actions.WindowRotateForward)
+      | RotateUpwards => dispatch(Actions.WindowRotateBackward)
+      | _ => ()
       };
     });
 
@@ -981,6 +965,7 @@ let start =
         state,
         synchronizeViml(configuration),
       )
+
     | Command("editor.action.clipboardPasteAction") => (
         state,
         pasteIntoEditorAction,
@@ -994,6 +979,7 @@ let start =
     | Command("editor.action.outdentLines") => (state, outdentEffect)
     | Command("vim.esc") => (state, escapeEffect)
     | Command("vim.tutor") => (state, openTutorEffect)
+
     | ListFocusUp
     | ListFocusDown
     | ListFocus(_) =>
@@ -1009,21 +995,33 @@ let start =
       (state, eff);
 
     | Init => (state, initEffect)
+
     | ModeChanged(vimMode) => ({...state, vimMode}, Isolinear.Effect.none)
+
     | OpenFileByPath(path, direction, location) => (
         state,
         openFileByPathEffect(path, direction, location),
       )
+
     | BufferEnter(_)
     | EditorFont(Service_Font.FontLoaded(_))
     | WindowSetActive(_, _)
+    | WindowMoveLeft
+    | WindowMoveRight
+    | WindowMoveUp
+    | WindowMoveDown
+    | WindowRotateForward
+    | WindowRotateBackward
     | EditorSizeChanged(_) => (state, synchronizeEditorEffect(state))
+
     | BufferSetIndentation(_, indent) => (
         state,
         synchronizeIndentationEffect(indent),
       )
     | ViewSetActiveEditor(_) => (state, synchronizeEditorEffect(state))
+
     | ViewCloseEditor(_) => (state, synchronizeEditorEffect(state))
+
     | Command("workbench.action.nextEditor") => (
         state,
         synchronizeEditorEffect(state),
@@ -1103,6 +1101,7 @@ let start =
       (state, effect);
 
     | KeyboardInput(s) => (state, inputEffect(s))
+
     | CopyActiveFilepathToClipboard => (
         state,
         copyActiveFilepathToClipboardEffect,

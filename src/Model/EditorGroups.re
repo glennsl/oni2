@@ -23,14 +23,16 @@ let create = () => {
 
 let activeGroupId = model => model.activeId;
 
-let getEditorGroupById = (model, id) => IntMap.find_opt(id, model.idToGroup);
+let getById = (model, id) => IntMap.find_opt(id, model.idToGroup);
 
-let getActiveEditorGroup = model => getEditorGroupById(model, model.activeId);
+let getActive = model => getById(model, model.activeId);
+
+let setActive = (id, model) => {...model, activeId: id};
 
 let isActive = (model, group: EditorGroup.t) =>
   group.editorGroupId == model.activeId;
 
-let applyToAllEditorGroups = (~defaultFont, editors, action: Actions.t) =>
+let applyToAll = (~defaultFont, editors, action: Actions.t) =>
   IntMap.map(
     group => EditorGroupReducer.reduce(~defaultFont, group, action),
     editors,
@@ -64,7 +66,7 @@ let isEmpty = (id, model) => {
   };
 };
 
-let removeEmptyEditorGroups = model => {
+let removeEmpty = model => {
   let idToGroup =
     IntMap.filter(
       (_, group) => !EditorGroup.isEmpty(group),
@@ -78,17 +80,13 @@ let reduce = (~defaultFont, model, action: Actions.t) => {
   switch (action) {
   | EditorFont(Service_Font.FontLoaded(font)) => {
       ...model,
-      idToGroup:
-        applyToAllEditorGroups(~defaultFont, model.idToGroup, action),
+      idToGroup: applyToAll(~defaultFont, model.idToGroup, action),
       lastEditorFont: Some(font),
     }
   | EditorSizeChanged(_) => {
       ...model,
-      idToGroup:
-        applyToAllEditorGroups(~defaultFont, model.idToGroup, action),
+      idToGroup: applyToAll(~defaultFont, model.idToGroup, action),
     }
-
-  | WindowSetActive(_, editorGroupId) => {...model, activeId: editorGroupId}
 
   | EditorGroupAdd(editorGroup) =>
     let editorGroup =
@@ -111,7 +109,7 @@ let reduce = (~defaultFont, model, action: Actions.t) => {
 
   | action =>
     let newModel =
-      switch (getActiveEditorGroup(model)) {
+      switch (getActive(model)) {
       | Some(group) => {
           ...model,
           idToGroup:
@@ -125,8 +123,7 @@ let reduce = (~defaultFont, model, action: Actions.t) => {
       };
 
     switch (action) {
-    | ViewCloseEditor(_) =>
-      newModel |> removeEmptyEditorGroups |> ensureActiveId
+    | ViewCloseEditor(_) => newModel |> removeEmpty |> ensureActiveId
     | _ => newModel
     };
   };

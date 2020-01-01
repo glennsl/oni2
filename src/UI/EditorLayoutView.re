@@ -45,10 +45,7 @@ let renderTree = (state, theme, tree) => {
            height(item.height),
          ]>
          {switch (
-            EditorGroups.getEditorGroupById(
-              state.editorGroups,
-              item.split.editorGroupId,
-            )
+            EditorGroups.getById(state.editorGroups, item.split.editorGroupId)
           ) {
           | Some(editorGroup) =>
             <EditorGroupView

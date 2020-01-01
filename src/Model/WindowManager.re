@@ -15,12 +15,6 @@ module WindowId = {
 [@deriving show({with_path: false})]
 type componentCreator = unit => React.element(React.node);
 
-type direction =
-  | Up
-  | Left
-  | Down
-  | Right;
-
 [@deriving show({with_path: false})]
 type t = {
   windowTree: WindowTree.t,
@@ -31,54 +25,50 @@ type t = {
 
 let initialWindowId = WindowId.next();
 
-let create = (): t => {
+let create = () => {
   activeWindowId: initialWindowId,
   windowTree: WindowTree.empty,
   windowTreeWidth: 1,
   windowTreeHeight: 1,
 };
 
-let setTreeSize = (width, height, v: t) => {
-  ...v,
+let setTreeSize = (width, height, state) => {
+  ...state,
   windowTreeWidth: width,
   windowTreeHeight: height,
 };
 
 /* Ensure the activeWindowId points to a valid winodw */
-let ensureActive = (v: t) => {
-  let splits: list(WindowTree.split) = WindowTree.getSplits(v.windowTree);
-  let activeWindowId: int = v.activeWindowId;
+let ensureActive = state => {
+  let splits: list(WindowTree.split) =
+    WindowTree.getSplits(state.windowTree);
+  let activeWindowId: int = state.activeWindowId;
 
   let splitIsActive =
-    List.exists((s: WindowTree.split) => s.id == activeWindowId, splits);
+    List.exists(
+      (split: WindowTree.split) => split.id == activeWindowId,
+      splits,
+    );
 
   if (!splitIsActive && List.length(splits) > 0) {
-    {...v, activeWindowId: List.hd(splits).id};
+    {...state, activeWindowId: List.hd(splits).id};
   } else {
-    v;
+    state;
   };
 };
 
-let moveCore = (dirX, dirY, v: t) => {
-  let layout = WindowTreeLayout.layout(0, 0, 200, 200, v.windowTree);
-  let newWindow = WindowTreeLayout.move(v.activeWindowId, dirX, dirY, layout);
+let move = (dirX, dirY, state) => {
+  let layout = WindowTreeLayout.layout(0, 0, 200, 200, state.windowTree);
+  let newWindow =
+    WindowTreeLayout.move(state.activeWindowId, dirX, dirY, layout);
 
   switch (newWindow) {
-  | None => v.activeWindowId
+  | None => state.activeWindowId
   | Some(newId) => newId
   };
 };
 
-let moveLeft = moveCore(-1, 0);
-let moveRight = moveCore(1, 0);
-let moveUp = moveCore(0, -1);
-let moveDown = moveCore(0, 1);
-
-let move = (direction: direction, v) => {
-  switch (direction) {
-  | Up => moveUp(v)
-  | Down => moveDown(v)
-  | Left => moveLeft(v)
-  | Right => moveRight(v)
-  };
-};
+let moveLeft = move(-1, 0);
+let moveRight = move(1, 0);
+let moveUp = move(0, -1);
+let moveDown = move(0, 1);

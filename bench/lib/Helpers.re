@@ -37,7 +37,7 @@ let simpleEditor =
   Editor.create(~font=defaultFont, ())
   |> Editor.setSize(~pixelWidth=3440, ~pixelHeight=1440);
 let editorGroup =
-  EditorGroups.getActiveEditorGroup(simpleState.editorGroups)
+  EditorGroups.getActive(simpleState.editorGroups)
   |> Option.value(~default=EditorGroup.create());
 
 let thousandLines =

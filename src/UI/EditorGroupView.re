@@ -223,9 +223,8 @@ let make =
   };
 
   let onMouseDown = _ => {
-    GlobalContext.current().setActiveWindow(
-      windowId,
-      editorGroup.editorGroupId,
+    GlobalContext.current().dispatch(
+      WindowSetActive(windowId, editorGroup.editorGroupId),
     );
   };
 

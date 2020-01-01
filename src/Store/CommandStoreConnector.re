@@ -234,23 +234,6 @@ let start = (getState, contributedCommands) => {
       dispatch(AddSplit(direction, split));
     });
 
-  let windowMoveEffect = (state: State.t, direction, _) => {
-    Isolinear.Effect.createWithDispatch(~name="window.move", dispatch => {
-      let windowId = WindowManager.move(direction, state.windowManager);
-      let maybeEditorGroupId =
-        WindowTree.getEditorGroupIdFromSplitId(
-          windowId,
-          state.windowManager.windowTree,
-        );
-
-      switch (maybeEditorGroupId) {
-      | Some(editorGroupId) =>
-        dispatch(WindowSetActive(windowId, editorGroupId))
-      | None => ()
-      };
-    });
-  };
-
   let togglePathEffect = name =>
     Isolinear.Effect.create(
       ~name,
@@ -356,10 +339,10 @@ let start = (getState, contributedCommands) => {
           Actions.ActivityBar(ActivityBar.FileExplorerClick),
         ),
     ),
-    ("window.moveLeft", state => windowMoveEffect(state, Left)),
-    ("window.moveRight", state => windowMoveEffect(state, Right)),
-    ("window.moveUp", state => windowMoveEffect(state, Up)),
-    ("window.moveDown", state => windowMoveEffect(state, Down)),
+    ("window.moveLeft", state => singleActionEffect(WindowMoveLeft)),
+    ("window.moveRight", state => singleActionEffect(WindowMoveRight)),
+    ("window.moveUp", state => singleActionEffect(WindowMoveUp)),
+    ("window.moveDown", state => singleActionEffect(WindowMoveDown)),
     (
       "terminal.new.vertical",
       _ => {

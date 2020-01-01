@@ -11,11 +11,11 @@ module Ext = Oni_Extensions;
 module Editor = Feature_Editor.Editor;
 
 let getActiveEditorGroup = (state: State.t) => {
-  EditorGroups.getActiveEditorGroup(state.editorGroups);
+  EditorGroups.getActive(state.editorGroups);
 };
 
 let getEditorGroupById = (state: State.t, id) => {
-  EditorGroups.getEditorGroupById(state.editorGroups, id);
+  EditorGroups.getById(state.editorGroups, id);
 };
 
 let getActiveEditor = (editorGroup: option(EditorGroup.t)) => {

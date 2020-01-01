@@ -88,6 +88,12 @@ type t =
   | WindowSetActive(int, int)
   | WindowTitleSet(string)
   | WindowTreeSetSize(int, int)
+  | WindowMoveLeft
+  | WindowMoveRight
+  | WindowMoveUp
+  | WindowMoveDown
+  | WindowRotateForward
+  | WindowRotateBackward
   | EditorGroupAdd(EditorGroup.t)
   | EditorGroupSizeChanged({
       id: int,

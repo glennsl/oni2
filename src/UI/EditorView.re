@@ -25,7 +25,7 @@ module Styles = {
 let make = (~state: State.t, ~theme, ()) =>
   if (state.zenMode) {
     <View style={Styles.container(theme)}>
-      {switch (EditorGroups.getActiveEditorGroup(state.editorGroups)) {
+      {switch (EditorGroups.getActive(state.editorGroups)) {
        | Some(editorGroup) =>
          <EditorGroupView
            state
