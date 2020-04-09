@@ -35,6 +35,7 @@ let update =
       switch ((maybeOutmsg: Feature_SCM.outmsg)) {
       | Focus => (FocusManager.push(Focus.SCM, state), Effect.none)
       | Effect(eff) => (FocusManager.push(Focus.SCM, state), eff)
+      | ContextMenu(menu) => ({...state, contextMenu: State.ContextMenu.SCM(menu)}, Effect.none)
       | Nothing => (state, Effect.none)
       };
 

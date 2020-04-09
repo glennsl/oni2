@@ -6,35 +6,6 @@
 open Oni_Core;
 open Rench;
 
-module Command = {
-  [@deriving show]
-  type t = {
-    command: string,
-    title: LocalizedToken.t,
-    category: option(string),
-  };
-
-  let decode =
-    Json.Decode.(
-      obj(({field, _}) =>
-        {
-          command: field.required("command", string),
-          title: field.required("title", LocalizedToken.decode),
-          category: field.optional("category", string),
-        }
-      )
-    );
-
-  let encode = command =>
-    Json.Encode.(
-      obj([
-        ("command", command.command |> string),
-        ("title", null),
-        ("category", command.category |> option(string)),
-      ])
-    );
-};
-
 module Configuration = {
   [@deriving show]
   type t = list(property)
@@ -74,6 +45,73 @@ module Configuration = {
     config
     |> List.map(({name, default}) => (name, default))
     |> Config.Settings.fromList;
+};
+
+module Command = {
+  [@deriving show]
+  type t = {
+    command: string,
+    title: LocalizedToken.t,
+    category: option(string),
+  };
+
+  let decode =
+    Json.Decode.(
+      obj(({field, _}) =>
+        {
+          command: field.required("command", string),
+          title: field.required("title", LocalizedToken.decode),
+          category: field.optional("category", string),
+        }
+      )
+    );
+
+  let encode = command =>
+    Json.Encode.(
+      obj([
+        ("command", command.command |> string),
+        ("title", null),
+        ("category", command.category |> option(string)),
+      ])
+    );
+};
+
+module Menu = {
+  [@deriving show]
+  type t = {
+    id: string,
+    items: list(item),
+  }
+
+  and item = {
+    command: string,
+    alt: option(string),
+    group: string,
+    condition: WhenExpr.t,
+  };
+
+  module Decode = {
+    open Json.Decode;
+
+    let whenExpression =
+      string
+      |> map(WhenExpr.parse);
+
+    let item =
+      obj(({field, _}) =>
+        {
+          command: field.required("command", string),
+          alt: field.optional("alt", string),
+          group: field.withDefault("group", "", string),
+          // condition: field.required("when", whenExpression),
+          condition: WhenExpr.Value(True)
+        }
+      );
+
+    let menus =
+      key_value_pairs(list(item))
+      |> map(List.map(((id, items)) => {id, items}));
+  };
 };
 
 module Language = {
@@ -209,26 +247,28 @@ module IconTheme = {
 
 [@deriving show]
 type t = {
+  configuration: Configuration.t,
   commands: list(Command.t),
+  menus: list(Menu.t),
   languages: list(Language.t),
   grammars: list(Grammar.t),
   themes: list(Theme.t),
   iconThemes: list(IconTheme.t),
-  configuration: Configuration.t,
 };
 
 let decode =
   Json.Decode.(
     obj(({field, _}) =>
       {
+        configuration:
+          field.withDefault("configuration", [], Configuration.decode),
         commands: field.withDefault("commands", [], list(Command.decode)),
+        menus: field.withDefault("menus", [], Menu.Decode.menus),
         languages: field.withDefault("languages", [], list(Language.decode)),
         grammars: field.withDefault("grammars", [], list(Grammar.decode)),
         themes: field.withDefault("themes", [], list(Theme.decode)),
         iconThemes:
           field.withDefault("iconThemes", [], list(IconTheme.decode)),
-        configuration:
-          field.withDefault("configuration", [], Configuration.decode),
       }
     )
   );
@@ -236,12 +276,12 @@ let decode =
 let encode = data =>
   Json.Encode.(
     obj([
+      ("configuration", null),
       ("commands", data.commands |> list(Command.encode)),
       ("languages", data.languages |> list(Language.encode)),
       ("grammars", data.grammars |> list(Grammar.encode)),
       ("themes", data.themes |> list(Theme.encode)),
       ("iconThemes", data.iconThemes |> list(IconTheme.encode)),
-      ("configuration", null),
     ])
   );
 

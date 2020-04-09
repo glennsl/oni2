@@ -62,10 +62,10 @@ let scan = (~prefix=None, ~category, directory: string) => {
         parsedManifest
         |> remapManifest(directory)
         |> ExtensionManifest.updateName(name =>
-             prefix
-             |> Option.map(prefix => prefix ++ "." ++ name)
-             |> Option.value(~default=name)
-           )
+              prefix
+              |> Option.map(prefix => prefix ++ "." ++ name)
+              |> Option.value(~default=name)
+            )
         |> localize;
 
       Some({category, manifest, path: directory});
@@ -75,7 +75,7 @@ let scan = (~prefix=None, ~category, directory: string) => {
         m("Failed to parse %s:\n\t%s", pkg, Json.Decode.string_of_error(err))
       );
       None;
-    };
+    }
   };
 
   Sys.readdir(directory)

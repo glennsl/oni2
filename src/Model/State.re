@@ -18,6 +18,7 @@ module LanguageFeatures = Feature_LanguageSupport.LanguageFeatures;
 module ContextMenu = {
   type t =
     | NotificationStatusBarItem
+    | SCM(Feature_SCM.menu)
     | Nothing;
 };
 

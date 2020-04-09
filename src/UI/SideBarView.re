@@ -40,7 +40,43 @@ let animation =
     |> delay(Revery.Time.milliseconds(0))
   );
 
+let getMenu = (id, extensions) => {
+  let commands =
+    List.fold_left((acc, extension: Oni_Extensions.ExtensionScanner.t) =>
+      List.fold_left((acc, cmd: Oni_Extensions.ExtensionContributions.Command.t) =>
+        Core.StringMap.add(cmd.command, cmd, acc),
+        Core.StringMap.empty,
+        extension.manifest.contributes.commands,
+      )
+      |> Core.StringMap.union((_, _, x) => Some(x), acc),
+      Core.StringMap.empty,
+      extensions
+    );
+
+  let menus =
+    List.fold_left((acc, extension: Oni_Extensions.ExtensionScanner.t) =>
+      List.fold_left((acc, menu: Oni_Extensions.ExtensionContributions.Menu.t) =>
+        Core.StringMap.add(menu.id, menu.items, acc),
+        Core.StringMap.empty,
+        extension.manifest.contributes.menus,
+      )
+      |> Core.StringMap.union((_, xs, ys) => Some(List.append(xs, ys)), acc),
+      Core.StringMap.empty,
+      extensions
+    );
+
+  menus
+  |> Core.StringMap.find_opt(id)
+  |> Option.value(~default=[])
+  |> List.filter_map((item: Oni_Extensions.ExtensionContributions.Menu.item) => {
+    commands
+    |> Core.StringMap.find_opt(item.command)
+    |> Option.map((cmd: Oni_Extensions.ExtensionContributions.Command.t) => (Oni_Extensions.LocalizedToken.to_string(cmd.title), Actions.Command(cmd.command)))
+  });
+};
+
 let%component make = (~theme, ~state: State.t, ()) => {
+  [@warning "-27"]
   let State.{sideBar, uiFont: font, _} = state;
 
   let%hook (transition, _animationState, _reset) =
@@ -76,6 +112,16 @@ let%component make = (~theme, ~state: State.t, ()) => {
         workingDirectory
         onItemClick
         isFocused={FocusManager.current(state) == Focus.SCM}
+        groupMenu=getMenu("scm/resourceGroup/context", state.extensions.extensions)
+        resourceMenu=getMenu("scm/resourceState/context", state.extensions.extensions)
+        // resourceMenu=[("test", Actions.Noop), ("foo", Actions.Noop)]
+        onSelectMenuItem=GlobalContext.current().dispatch
+        currentMenu={
+          switch (state.contextMenu) {
+          | SCM(menu) => Some(menu)
+          | _ => None
+          }
+        }
         theme
         font
         dispatch={msg => GlobalContext.current().dispatch(Actions.SCM(msg))}
