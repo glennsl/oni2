@@ -65,6 +65,10 @@ let make =
       backgroundColor(colors.editorForeground),
     ];
 
+  // Console.log(List.length(
+  //   IntMap.bindings(diagnostics)
+  // ));
+
   let diagnosticElements =
     IntMap.bindings(diagnostics)
     |> List.map(binding => {
@@ -161,6 +165,11 @@ let make =
     let line = Index.toZeroBased(line);
     <View style={searchMatches(bufferLineToScrollbarPixel(line))} />;
   };
+  // Console.log(List.length(
+  //   BufferHighlights.getHighlights(
+  //     ~bufferId=editor.bufferId,
+  //     bufferHighlights,
+  //   )));
 
   let searchMatchElements =
     BufferHighlights.getHighlights(

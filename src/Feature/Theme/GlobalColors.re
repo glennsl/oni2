@@ -539,6 +539,28 @@ module Oni = {
   };
 };
 
+module Panel = {
+  let background = define("panel.background", all(ref(Editor.background)));
+  let border = define("panel.border", {
+    dark: hex("#808080") |> transparent(0.35),
+    light: hex("#808080") |> transparent(0.35),
+    hc: ref(contrastBorder),
+  });
+
+  let defaults = [
+    background,
+    border
+  ];
+};
+
+module PanelTitle = {
+  let activeForeground = define("panelTitle.activeForeground", {
+    dark: hex("#E7E7E7"),
+    light: hex("#424242"),
+    hc: hex("#FFF"),
+  })
+};
+
 module ScrollbarSlider = {
   let background =
     define(

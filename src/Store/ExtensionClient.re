@@ -163,10 +163,14 @@ let create = (~config, ~extensions, ~setup: Setup.t) => {
       };
 
     let f = (d: Protocol.Diagnostics.t) => {
+      // Console.log(List.length(snd(d)));
       let diagnostics = List.map(protocolDiagToDiag, snd(d));
       let uri = fst(d);
       Actions.DiagnosticsSet(uri, diagCollection.name, diagnostics);
     };
+
+    // Console.log(List.length(
+    // diagCollection.perFileDiagnostics));
 
     diagCollection.perFileDiagnostics
     |> List.map(f)

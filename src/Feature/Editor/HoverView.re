@@ -100,6 +100,8 @@ let%component hoverItem =
       elementHeight * List.length(diagnostics) + Constants.padding * 2;
     };
 
+    // Console.log(List.length(diagnostics));
+
     let elements =
       diagnostics
       |> List.map(({message, _}: Diagnostic.t) =>

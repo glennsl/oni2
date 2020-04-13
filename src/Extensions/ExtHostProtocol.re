@@ -308,6 +308,7 @@ module DiagnosticsCollection = {
   let of_yojson = (json: Yojson.Safe.t) => {
     switch (json) {
     | `List([`String(name), `List(perFileDiagnostics)]) =>
+      // Console.log(perFileDiagnostics);
       let perFileDiagnostics =
         perFileDiagnostics
         |> List.map(Diagnostics.of_yojson)
