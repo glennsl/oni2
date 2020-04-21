@@ -1,6 +1,7 @@
 open Oni_Core;
 open Utility;
 
+module ContextMenu = Oni_Components.ContextMenu;
 module InputModel = Oni_Components.InputModel;
 module ExtHostClient = Oni_Extensions.ExtHostClient;
 module Selection = Oni_Components.Selection;
@@ -13,6 +14,13 @@ type command = ExtHostClient.SCM.command;
 module Resource = ExtHostClient.SCM.Resource;
 module ResourceGroup = ExtHostClient.SCM.ResourceGroup;
 module Provider = ExtHostClient.SCM.Provider;
+
+type menu =
+  | GroupMenu({handle: int})
+  | ResourceMenu({
+      group: int,
+      resource: int,
+    });
 
 [@deriving show({with_path: false})]
 type model = {
@@ -92,7 +100,20 @@ type msg =
       command,
     })
   | KeyPressed({key: string})
-  | InputBoxClicked({selection: Selection.t});
+  | InputBoxClicked({selection: Selection.t})
+  | GroupRightClick({handle: int})
+  | ResourceRightClick({
+      group: int,
+      resource: int,
+    })
+  | GroupMenuItemSelected({
+      handle: int,
+      item: Menu.item,
+    })
+  | ResourceMenuItemSelected({
+      uri: Uri.t,
+      item: Menu.item,
+    });
 
 module Msg = {
   let keyPressed = key => KeyPressed({key: key});
@@ -101,6 +122,11 @@ module Msg = {
 type outmsg =
   | Effect(Isolinear.Effect.t(msg))
   | Focus
+  | ContextMenu(menu)
+  | MenuItemSelected({
+      command: string,
+      argument: Json.t,
+    })
   | Nothing;
 
 let update = (extHostClient, model, msg) =>
@@ -341,6 +367,32 @@ let update = (extHostClient, model, msg) =>
       },
       Focus,
     )
+
+  | GroupRightClick({handle}) => (
+      model,
+      ContextMenu(GroupMenu({handle: handle})),
+    )
+
+  | ResourceRightClick({group, resource}) => (
+      model,
+      ContextMenu(ResourceMenu({group, resource})),
+    )
+
+  | GroupMenuItemSelected({handle, item}) => (
+      model,
+      MenuItemSelected({
+        command: item.command,
+        argument: Json.Encode.int(handle),
+      }),
+    )
+
+  | ResourceMenuItemSelected({uri, item}) => (
+      model,
+      MenuItemSelected({
+        command: item.command,
+        argument: Uri.to_yojson(uri),
+      }),
+    )
   };
 
 let handleExtensionMessage = (~dispatch, msg: ExtHostClient.SCM.msg) =>
@@ -443,64 +495,163 @@ module Pane = {
     ];
   };
 
-  let%component itemView =
-                (
-                  ~provider: Provider.t,
-                  ~resource: Resource.t,
-                  ~theme,
-                  ~font,
-                  ~workingDirectory: option(string),
-                  ~onClick,
-                  (),
-                ) => {
-    open Base;
-    let%hook (isHovered, setHovered) = Hooks.state(false);
-    let onMouseOver = _ => setHovered(_ => true);
-    let onMouseOut = _ => setHovered(_ => false);
+  let component = React.Expert.component("groupView");
+  let itemView =
+      (
+        ~provider: Provider.t,
+        ~group: ResourceGroup.t,
+        ~resource: Resource.t,
+        ~workingDirectory: option(string),
+        ~onClick,
+        ~menus,
+        ~currentMenu,
+        ~theme,
+        ~font,
+        ~dispatch,
+        (),
+      ) =>
+    component(hooks => {
+      open Base;
+      let ((isHovered, setHovered), hooks) = Hooks.state(false, hooks);
+      let onMouseOver = _ => setHovered(_ => true);
+      let onMouseOut = _ => setHovered(_ => false);
+      let isMenuOpen =
+        Poly.(
+          currentMenu
+          == Some(
+               ResourceMenu({group: group.handle, resource: resource.handle}),
+             )
+        );
+      let onRightClick = () =>
+        dispatch(
+          ResourceRightClick({
+            group: group.handle,
+            resource: resource.handle,
+          }),
+        );
 
-    let base =
-      Option.first_some(
-        Option.map(provider.rootUri, ~f=Uri.toFileSystemPath),
-        workingDirectory,
-      )
-      |> Option.value(~default="/");
+      let base =
+        Option.first_some(
+          Option.map(provider.rootUri, ~f=Uri.toFileSystemPath),
+          workingDirectory,
+        )
+        |> Option.value(~default="/");
 
-    let path = Uri.toFileSystemPath(resource.uri);
-    let displayName = Path.toRelative(~base, path);
+      let path = Uri.toFileSystemPath(resource.uri);
+      let displayName = Path.toRelative(~base, path);
 
-    <View style={Styles.item(~isHovered, ~theme)} onMouseOver onMouseOut>
-      <Clickable onClick>
-        <Text style={Styles.text(~font, ~theme)} text=displayName />
-      </Clickable>
-    </View>;
-  };
+      let menu = () =>
+        if (isMenuOpen) {
+          <ContextMenu
+            items={
+              Feature_Menus.scmResourceStateContext(menus)
+              |> List.map(~f=(item: Menu.item) =>
+                   ContextMenu.{label: item.label, data: item}
+                 )
+            }
+            onItemSelect={item => {
+              dispatch(
+                ResourceMenuItemSelected({
+                  uri: resource.uri,
+                  item: item.data,
+                }),
+              )
+            }}
+            theme
+            font
+          />;
+        } else {
+          React.empty;
+        };
+
+      (
+        <View style={Styles.item(~isHovered, ~theme)} onMouseOver onMouseOut>
+          <Clickable onClick onRightClick>
+            <Text style={Styles.text(~font, ~theme)} text=displayName />
+          </Clickable>
+          <menu />
+        </View>,
+        hooks,
+      );
+    });
 
   let groupView =
       (
-        ~provider,
+        ~provider: Provider.t,
         ~group: ResourceGroup.t,
-        ~theme,
-        ~font,
         ~workingDirectory,
         ~onItemClick,
+        ~menus,
+        ~currentMenu,
+        ~contextKeys,
+        ~theme,
+        ~font,
+        ~dispatch,
         (),
       ) => {
+    let isMenuOpen = currentMenu == Some(GroupMenu({handle: group.handle}));
+    let onRightClick = () =>
+      dispatch(GroupRightClick({handle: group.handle}));
+
     let label = String.uppercase_ascii(group.label);
+
+    let contextKeys =
+      WhenExpr.ContextKeys.union(
+        contextKeys,
+        WhenExpr.ContextKeys.fromList([
+          ("scmProvider", WhenExpr.Value.String(provider.id)),
+          ("scmResourceGroup", WhenExpr.Value.String(group.id)),
+        ]),
+      );
+
+    let menu = () =>
+      if (isMenuOpen) {
+        <ContextMenu
+          items={
+            Feature_Menus.scmResourceGroupContext(menus)
+            |> List.filter((item: Menu.item) =>
+                 item.group != Some("inline")
+                 && WhenExpr.evaluate(
+                      item.isVisibleWhen,
+                      WhenExpr.ContextKeys.getValue(contextKeys),
+                    )
+               )
+            |> List.map((item: Menu.item) =>
+                 ContextMenu.{label: item.label, data: item}
+               )
+          }
+          onItemSelect={item => {
+            dispatch(
+              GroupMenuItemSelected({handle: group.handle, item: item.data}),
+            )
+          }}
+          theme
+          font
+        />;
+      } else {
+        React.empty;
+      };
+
     <View style=Styles.group>
-      <View style=Styles.groupLabel>
+      <Clickable style=Styles.groupLabel onRightClick>
         <Text style={Styles.groupLabelText(~font, ~theme)} text=label />
-      </View>
+      </Clickable>
+      <menu />
       <View style=Styles.groupItems>
         ...{
              group.resources
              |> List.map(resource =>
                   <itemView
                     provider
+                    group
                     resource
-                    theme
-                    font
                     workingDirectory
                     onClick={() => onItemClick(resource)}
+                    menus
+                    currentMenu
+                    theme
+                    font
+                    dispatch
                   />
                 )
              |> React.listToElement
@@ -515,6 +666,9 @@ module Pane = {
         ~workingDirectory,
         ~onItemClick,
         ~isFocused,
+        ~menus,
+        ~currentMenu,
+        ~contextKeys,
         ~theme,
         ~font,
         ~dispatch,
@@ -546,10 +700,14 @@ module Pane = {
             <groupView
               provider
               group
-              theme
-              font
               workingDirectory
               onItemClick
+              menus
+              currentMenu
+              contextKeys
+              theme
+              font
+              dispatch
             />
           )
        |> React.listToElement}

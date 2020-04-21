@@ -47,6 +47,8 @@ module Provider: {
   };
 };
 
+type menu;
+
 [@deriving show]
 type model;
 
@@ -70,6 +72,11 @@ module Msg: {let keyPressed: string => msg;};
 type outmsg =
   | Effect(Isolinear.Effect.t(msg))
   | Focus
+  | ContextMenu(menu)
+  | MenuItemSelected({
+      command: string,
+      argument: Json.t,
+    })
   | Nothing;
 
 let update: (ExtHostClient.t, model, msg) => (model, outmsg);
@@ -86,6 +93,9 @@ module Pane: {
       ~workingDirectory: option(string),
       ~onItemClick: Resource.t => unit,
       ~isFocused: bool,
+      ~menus: Menu.Lookup.t,
+      ~currentMenu: option(menu),
+      ~contextKeys: WhenExpr.ContextKeys.t,
       ~theme: ColorTheme.Colors.t,
       ~font: UiFont.t,
       ~dispatch: msg => unit,

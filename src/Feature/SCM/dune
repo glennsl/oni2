@@ -5,6 +5,7 @@
       editor-core-types
       Oni2.core
       Oni2.feature.theme
+      Oni2.feature.menus
       Oni2.components
       Oni2.extensions
       Revery

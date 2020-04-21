@@ -76,6 +76,14 @@ let%component make = (~theme, ~state: State.t, ()) => {
         workingDirectory
         onItemClick
         isFocused={FocusManager.current(state) == Focus.SCM}
+        menus={State.menus(state)}
+        currentMenu={
+          switch (state.contextMenu) {
+          | SCM(menu) => Some(menu)
+          | _ => None
+          }
+        }
+        contextKeys={WhenExpr.ContextKeys.fromSchema(ContextKeys.all, state)}
         theme
         font
         dispatch={msg => GlobalContext.current().dispatch(Actions.SCM(msg))}

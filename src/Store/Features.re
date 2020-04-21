@@ -3,6 +3,22 @@ open Oni_Core;
 open Oni_Model;
 open Actions;
 
+module Effects = {
+  let executeCommandById = (commands, command, argument) =>
+    Isolinear.Effect.createWithDispatch(~name="", dispatch =>
+      switch (Command.Lookup.get(command, commands)) {
+      | Some(cmd) =>
+        dispatch(
+          switch (cmd.msg) {
+          | `Arg0(msg) => msg
+          | `Arg1(msgf) => msgf(argument)
+          },
+        )
+      | None => ()
+      }
+    );
+};
+
 // UPDATE
 
 let update =
@@ -34,11 +50,30 @@ let update =
     let (state, eff) =
       switch ((maybeOutmsg: Feature_SCM.outmsg)) {
       | Focus => (FocusManager.push(Focus.SCM, state), Effect.none)
-      | Effect(eff) => (FocusManager.push(Focus.SCM, state), eff)
+
+      | Effect(eff) => (
+          FocusManager.push(Focus.SCM, state),
+          eff |> Effect.map(msg => Actions.SCM(msg)),
+        )
+
+      | ContextMenu(menu) => (
+          {...state, contextMenu: State.ContextMenu.SCM(menu)},
+          Effect.none,
+        )
+
+      | MenuItemSelected({command, argument}) => (
+          {...state, contextMenu: State.ContextMenu.Nothing},
+          Effects.executeCommandById(
+            State.commands(state),
+            command,
+            argument,
+          ),
+        )
+
       | Nothing => (state, Effect.none)
       };
 
-    (state, eff |> Effect.map(msg => Actions.SCM(msg)));
+    (state, eff);
 
   | BufferUpdate({update, _}) =>
     let syntaxHighlights =
