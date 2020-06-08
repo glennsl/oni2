@@ -1,7 +1,11 @@
 include AbstractTree;
 
 [@deriving show({with_path: false})]
-type metadata = {size: float};
+type metadata = {
+  size: float,
+  minWidth: float,
+  minHeight: float,
+};
 
 [@deriving show({with_path: false})]
 type t('id) = AbstractTree.node('id, metadata);
@@ -11,13 +15,44 @@ type t('id) = AbstractTree.node('id, metadata);
 module DSL = {
   open AbstractTree.DSL;
 
-  let split = (~size=1., direction, children) =>
-    split(~meta={size: size}, direction, children);
+  let split = (~size=1., direction, children) => {
+    let metadata =
+      switch (direction) {
+      | `Vertical => {
+          size,
+          minWidth:
+            children
+            |> List.map(c => c.meta.minWidth)
+            |> List.fold_left((+.), 0.),
+          minHeight:
+            children
+            |> List.map(c => c.meta.minHeight)
+            |> List.fold_left(max, 0.),
+        }
+      | `Horizontal => {
+          size,
+          minWidth:
+            children
+            |> List.map(c => c.meta.minWidth)
+            |> List.fold_left(max, 0.),
+          minHeight:
+            children
+            |> List.map(c => c.meta.minHeight)
+            |> List.fold_left((+.), 0.),
+        }
+      };
+
+    split(metadata, direction, children);
+  };
   let vsplit = (~size=1., children) => split(~size, `Vertical, children);
   let hsplit = (~size=1., children) => split(~size, `Horizontal, children);
-  let window = (~size=1., id) => window(~meta={size: size}, id);
+  let window = (~minWidth=100, ~minHeight=100, ~size=1., id) =>
+    window(
+      {size, minWidth: float(minWidth), minHeight: float(minHeight)},
+      id,
+    );
 
-  let withSize = (size, node) => node |> withMetadata({size: size});
+  let withSize = (size, node) => node |> withMetadata({...node.meta, size});
 };
 
 include DSL;
@@ -216,17 +251,344 @@ let%test_module "removeWindow" =
      };
    });
 
+// INTERNAL
+open {
+       let totalWeight = nodes =>
+         nodes
+         |> List.map(child => child.meta.size)
+         |> List.fold_left((+.), 0.)
+         |> max(1.);
+
+       /**
+        * shiftWeightRight
+        *
+        * Shifts weight from `nodes[index]` to `nodes[index+1]` if delta is positive,
+        * vice versa if negative. The amount of weight shifted depends on the space
+        * available as specified by `available`, the total weight of all nodes, and
+        * the minimum weight of each node.
+        */
+       let shiftWeightRight = (~available, ~delta, index, nodes) => {
+         let unitSize = float(available) /. totalWeight(nodes);
+
+         let rec loop = i =>
+           fun
+           | [] => []
+           | [node] => [node]
+           | [node, next, ...rest] when i == index => {
+               let delta = float(delta);
+               let weight = node.meta.size;
+               let size = weight *. unitSize;
+               let nextWeight = next.meta.size;
+               let nextSize = nextWeight *. unitSize;
+
+               let delta =
+                 if (size +. delta < node.meta.minWidth) {
+                   min(0., -. (size -. node.meta.minWidth));
+                 } else if (nextSize -. delta < next.meta.minWidth) {
+                   max(0., nextSize -. next.meta.minWidth);
+                 } else {
+                   delta;
+                 };
+
+               let deltaWeight = delta /. unitSize;
+
+               [
+                 node |> withSize(weight +. deltaWeight),
+                 next |> withSize(nextWeight -. deltaWeight),
+                 ...rest,
+               ];
+             }
+           | [node, ...rest] => [node, ...loop(i + 1, rest)];
+
+         loop(0, nodes);
+       };
+
+       let%test_module "shiftWeightRight" =
+         (module
+          {
+            let sizes = (~available, nodes) => {
+              open Base.Float;
+
+              let unitSize = of_int(available) / totalWeight(nodes);
+
+              nodes
+              |> List.map(node => node.meta.size * unitSize |> round |> to_int);
+            };
+
+            let%test "sanity check: sizes - even" =
+              sizes(~available=300, [window(1), window(2), window(3)])
+              == [100, 100, 100];
+            let%test "sanity check: sizes - uneven" =
+              sizes(
+                ~available=300,
+                [window(~size=0.95, 1), window(~size=1.05, 2), window(3)],
+              )
+              == [95, 105, 100];
+
+            let%test "positive delta" = {
+              let available = 600;
+              let initial = [window(1), window(2), window(3)];
+
+              let actual =
+                initial |> shiftWeightRight(~available, ~delta=5, 1);
+
+              sizes(~available, actual) == [200, 205, 195];
+            };
+
+            let%test "negative delta" = {
+              let available = 600;
+              let initial = [window(1), window(2), window(3)];
+
+              let actual =
+                initial |> shiftWeightRight(~available, ~delta=-5, 1);
+
+              sizes(~available, actual) == [200, 195, 205];
+            };
+
+            let%test "inital at minimum" = {
+              let available = 300;
+              let initial = [window(1), window(2), window(3)];
+
+              let actual =
+                initial |> shiftWeightRight(~available, ~delta=5, 1);
+
+              sizes(~available, actual) == [100, 100, 100];
+            };
+
+            let%test "initial below minimum" = {
+              let available = 150;
+              let initial = [window(1), window(2), window(3)];
+
+              let actual =
+                initial |> shiftWeightRight(~available, ~delta=5, 1);
+
+              sizes(~available, actual) == [50, 50, 50];
+            };
+
+            let%test "initial below minimum - negative delta" = {
+              let available = 150;
+              let initial = [window(1), window(2), window(3)];
+
+              let actual =
+                initial |> shiftWeightRight(~available, ~delta=-5, 1);
+
+              sizes(~available, actual) == [50, 50, 50];
+            };
+
+            let%test "delta > available" = {
+              let available = 600;
+              let initial = [window(1), window(2), window(3)];
+
+              let actual =
+                initial |> shiftWeightRight(~available, ~delta=700, 1);
+
+              sizes(~available, actual) == [200, 300, 100];
+            };
+          });
+
+       let shiftWeightDown = (~available, ~delta, index, nodes) => {
+         let unitSize = float(available) /. totalWeight(nodes);
+
+         let rec loop = i =>
+           fun
+           | [] => []
+           | [node] => [node]
+           | [node, next, ...rest] when i == index => {
+               let delta = float(delta);
+               let weight = node.meta.size;
+               let size = weight *. unitSize;
+               let nextWeight = next.meta.size;
+               let nextSize = nextWeight *. unitSize;
+
+               let delta =
+                 if (size +. delta < node.meta.minHeight) {
+                   min(0., -. (size -. node.meta.minHeight));
+                 } else if (nextSize -. delta < next.meta.minHeight) {
+                   max(0., nextSize -. next.meta.minHeight);
+                 } else {
+                   delta;
+                 };
+
+               let deltaWeight = delta /. unitSize;
+
+               [
+                 node |> withSize(weight +. deltaWeight),
+                 next |> withSize(nextWeight -. deltaWeight),
+                 ...rest,
+               ];
+             }
+           | [node, ...rest] => [node, ...loop(i + 1, rest)];
+
+         loop(0, nodes);
+       };
+     };
+
+/**
+ * resizeSplit
+ */
+let rec resizeSplit = (~width, ~height, ~path, ~delta, node) => {
+  switch (path) {
+  | [] => node // shouldn't happen
+
+  | [index] =>
+    switch (node.kind) {
+    | `Split(`Vertical, children) =>
+      vsplit(
+        ~size=node.meta.size,
+        shiftWeightRight(~available=width, ~delta, index, children),
+      )
+
+    | `Split(`Horizontal, children) =>
+      hsplit(
+        ~size=node.meta.size,
+        shiftWeightDown(~available=height, ~delta, index, children),
+      )
+
+    | `Window(_) => node
+    }
+
+  | [index, ...rest] =>
+    switch (node.kind) {
+    | `Split(direction, children) =>
+      let available = direction == `Vertical ? width : height;
+      let unitSize = float(available) /. totalWeight(children);
+
+      split(
+        ~size=node.meta.size,
+        direction,
+        List.mapi(
+          (i, child) => {
+            let size = int_of_float(unitSize *. child.meta.size);
+            let (width, height) =
+              switch (direction) {
+              | `Vertical => (size, height)
+              | `Horizontal => (width, size)
+              };
+
+            i == index
+              ? resizeSplit(~width, ~height, ~path=rest, ~delta, child)
+              : child;
+          },
+          children,
+        ),
+      );
+    | `Window(_) => node
+    }
+  };
+};
+
+let%test_module "resizeSplit" =
+  (module
+   {
+     let%test "vsplit" = {
+       let width = 300;
+       let height = 300;
+       let initial = vsplit([window(1), window(2)]);
+
+       let actual =
+         initial |> resizeSplit(~width, ~height, ~path=[0], ~delta=30);
+
+       actual == vsplit([window(~size=1.2, 1), window(~size=0.8, 2)]);
+     };
+
+     let%test "hsplit" = {
+       let width = 300;
+       let height = 300;
+       let initial = hsplit([window(1), window(2)]);
+
+       let actual =
+         initial |> resizeSplit(~width, ~height, ~path=[0], ~delta=30);
+
+       actual == hsplit([window(~size=1.2, 1), window(~size=0.8, 2)]);
+     };
+
+     let%test "vsplit + hsplit" = {
+       let width = 300;
+       let height = 300;
+       let initial = vsplit([window(3), hsplit([window(1), window(2)])]);
+
+       let actual =
+         initial |> resizeSplit(~width, ~height, ~path=[1, 0], ~delta=30);
+
+       actual
+       == vsplit([
+            window(3),
+            hsplit([window(~size=1.2, 1), window(~size=0.8, 2)]),
+          ]);
+     };
+
+     let%test "hsplit + vsplit" = {
+       let width = 300;
+       let height = 300;
+       let initial = hsplit([window(3), vsplit([window(1), window(2)])]);
+
+       let actual =
+         initial |> resizeSplit(~width, ~height, ~path=[1, 0], ~delta=30);
+
+       actual
+       == hsplit([
+            window(3),
+            vsplit([window(~size=1.2, 1), window(~size=0.8, 2)]),
+          ]);
+     };
+
+     let%test "vsplit + vsplit - at minimum" = {
+       let width = 300;
+       let height = 300;
+       let initial = vsplit([window(3), vsplit([window(1), window(2)])]);
+
+       let actual =
+         initial |> resizeSplit(~width, ~height, ~path=[1, 0], ~delta=30);
+
+       actual == vsplit([window(3), vsplit([window(1), window(2)])]);
+     };
+
+     let%test "vsplit + vsplit - above minimum" = {
+       let width = 600;
+       let height = 600;
+       let initial = vsplit([window(3), vsplit([window(1), window(2)])]);
+
+       let actual =
+         initial |> resizeSplit(~width, ~height, ~path=[1, 0], ~delta=30);
+
+       actual
+       == vsplit([
+            window(3),
+            vsplit([window(~size=1.2, 1), window(~size=0.8, 2)]),
+          ]);
+     };
+   });
+
 /**
  * resizeWindow
  */
-let resizeWindow = (direction, targetId, factor, node) => {
-  let rec traverse = (~parentDirection=?, node) =>
+let resizeWindow = (~width, ~height, direction, targetId, delta, node) => {
+  let delta = float(delta);
+
+  let rec traverse = (~width, ~height, ~parentDirection=?, ~unitSize=1., node) =>
     switch (node.kind) {
     | `Split(dir, children) =>
+      let available = dir == `Vertical ? width : height;
+      let unitSize = float(available) /. totalWeight(children);
+
       let (result, children) =
         List.fold_left(
           ((accResult, accChildren), child) => {
-            let (result, newChild) = traverse(~parentDirection=dir, child);
+            let size = int_of_float(unitSize *. child.meta.size);
+            let (width, height) =
+              switch (direction) {
+              | `Vertical => (size, height)
+              | `Horizontal => (width, size)
+              };
+
+            let (result, newChild) =
+              traverse(
+                ~width,
+                ~height,
+                ~parentDirection=dir,
+                ~unitSize,
+                child,
+              );
 
             (
               result == `NotFound ? accResult : result,
@@ -237,11 +599,13 @@ let resizeWindow = (direction, targetId, factor, node) => {
           List.rev(children),
         );
 
+      let deltaWeight = delta /. unitSize;
+
       switch (result, parentDirection) {
       | (`NotAdjusted, Some(parentDirection))
           when parentDirection != direction => (
           `Adjusted,
-          split(~size=node.meta.size *. factor, dir, children),
+          split(~size=node.meta.size *. deltaWeight, dir, children),
         )
 
       | _ => (result, split(~size=node.meta.size, dir, children))
@@ -251,30 +615,35 @@ let resizeWindow = (direction, targetId, factor, node) => {
       if (parentDirection == Some(direction)) {
         (`NotAdjusted, node);
       } else {
-        (`Adjusted, node |> withSize(node.meta.size *. factor));
+        let deltaWeight = delta /. unitSize;
+
+        (`Adjusted, node |> withSize(node.meta.size *. deltaWeight));
       }
 
     | `Window(_) => (`NotFound, node)
     };
 
-  traverse(node) |> snd;
+  traverse(~width, ~height, node) |> snd;
 };
 
 let%test_module "resizeWindow" =
   (module
    {
+     let resizeWindow = resizeWindow(~width=600, ~height=600);
+
      let%test "vsplit  - vresize" = {
        let initial = vsplit([window(1), window(2)]);
 
-       let actual = resizeWindow(`Vertical, 2, 5., initial);
+       let actual = resizeWindow(`Vertical, 2, 5, initial);
 
+       Console.log(show(Fmt.int, actual));
        actual == vsplit([window(1), window(2)]);
      };
 
      let%test "vsplit  - hresize" = {
        let initial = vsplit([window(1), window(2)]);
 
-       let actual = resizeWindow(`Horizontal, 2, 5., initial);
+       let actual = resizeWindow(`Horizontal, 2, 5, initial);
 
        actual == vsplit([window(1), window(~size=5., 2)]);
      };
@@ -282,7 +651,7 @@ let%test_module "resizeWindow" =
      let%test "hsplit  - hresize" = {
        let initial = hsplit([window(1), window(2)]);
 
-       let actual = resizeWindow(`Horizontal, 2, 5., initial);
+       let actual = resizeWindow(`Horizontal, 2, 5, initial);
 
        actual == hsplit([window(1), window(2)]);
      };
@@ -290,7 +659,7 @@ let%test_module "resizeWindow" =
      let%test "hsplit  - vresize" = {
        let initial = hsplit([window(1), window(2)]);
 
-       let actual = resizeWindow(`Vertical, 2, 5., initial);
+       let actual = resizeWindow(`Vertical, 2, 5, initial);
 
        actual == hsplit([window(1), window(~size=5., 2)]);
      };
@@ -298,7 +667,7 @@ let%test_module "resizeWindow" =
      let%test "vsplit+hsplit - hresize" = {
        let initial = vsplit([window(1), hsplit([window(2), window(3)])]);
 
-       let actual = resizeWindow(`Horizontal, 2, 5., initial);
+       let actual = resizeWindow(`Horizontal, 2, 5, initial);
 
        actual
        == vsplit([window(1), hsplit(~size=5., [window(2), window(3)])]);
@@ -307,7 +676,7 @@ let%test_module "resizeWindow" =
      let%test "vsplit+hsplit - vresize" = {
        let initial = vsplit([window(1), hsplit([window(2), window(3)])]);
 
-       let actual = resizeWindow(`Vertical, 2, 5., initial);
+       let actual = resizeWindow(`Vertical, 2, 5, initial);
 
        actual
        == vsplit([window(1), hsplit([window(~size=5., 2), window(3)])]);
@@ -316,7 +685,7 @@ let%test_module "resizeWindow" =
      let%test "hsplit+vsplit - hresize" = {
        let initial = hsplit([window(1), vsplit([window(2), window(3)])]);
 
-       let actual = resizeWindow(`Horizontal, 2, 5., initial);
+       let actual = resizeWindow(`Horizontal, 2, 5, initial);
 
        actual
        == hsplit([window(1), vsplit([window(~size=5., 2), window(3)])]);
@@ -325,78 +694,12 @@ let%test_module "resizeWindow" =
      let%test "hsplit+vsplit - vresize" = {
        let initial = hsplit([window(1), vsplit([window(2), window(3)])]);
 
-       let actual = resizeWindow(`Vertical, 2, 5., initial);
+       let actual = resizeWindow(`Vertical, 2, 5, initial);
 
        actual
        == hsplit([window(1), vsplit(~size=5., [window(2), window(3)])]);
      };
    });
-
-/**
- * resizeSplit
- */
-let rec resizeSplit = (~path, ~delta, node) => {
-  switch (path) {
-  | [] => node
-  | [index] =>
-    switch (node.kind) {
-    | `Split(direction, children) =>
-      let childCount = List.length(children);
-      let totalWeight =
-        children
-        |> List.map(child => child.meta.size)
-        |> List.fold_left((+.), 0.)
-        |> max(1.);
-      let minimumWeight =
-        min(0.1 *. totalWeight, totalWeight /. float(childCount));
-      let deltaWeight = totalWeight *. delta;
-
-      let rec resizeChildren = i => (
-        fun
-        | [] => [] // shouldn't happen
-        | [node] => [node] // shouldn't happen
-        | [node, next, ...rest] when index == i => {
-            let weight = node.meta.size;
-            let nextWeight = next.meta.size;
-            let deltaWeight =
-              if (weight +. deltaWeight < minimumWeight) {
-                -. (weight -. minimumWeight);
-              } else if (nextWeight -. deltaWeight < minimumWeight) {
-                nextWeight -. minimumWeight;
-              } else {
-                deltaWeight;
-              };
-
-            [
-              node |> withSize(weight +. deltaWeight),
-              next |> withSize(nextWeight -. deltaWeight),
-              ...rest,
-            ];
-          }
-        | [node, ...rest] => [node, ...resizeChildren(i + 1, rest)]
-      );
-
-      split(~size=node.meta.size, direction, resizeChildren(0, children));
-
-    | `Window(_) => node
-    }
-
-  | [index, ...rest] =>
-    switch (node.kind) {
-    | `Split(direction, children) =>
-      split(
-        ~size=node.meta.size,
-        direction,
-        List.mapi(
-          (i, child) =>
-            i == index ? resizeSplit(~path=rest, ~delta, child) : child,
-          children,
-        ),
-      )
-    | `Window(_) => node
-    }
-  };
-};
 
 /**
  * resetWeights

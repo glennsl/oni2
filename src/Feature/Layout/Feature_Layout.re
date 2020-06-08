@@ -1,13 +1,21 @@
 // MODEL
 
-type model = Layout.t(int);
+type model = {
+  width: int,
+  height: int,
+  tree: Layout.t(int),
+};
 
-let initial = id => Layout.singleton(id);
+let initial = id => {width: 100, height: 100, tree: Layout.singleton(id)};
 
-let windows = Layout.windows;
-let addWindow = Layout.addWindow;
-let insertWindow = Layout.insertWindow;
-let removeWindow = Layout.removeWindow;
+let updateTree = (f, model) => {...model, tree: f(model.tree)};
+
+let windows = model => Layout.windows(model.tree);
+let addWindow = (direction, focus) =>
+  updateTree(Layout.addWindow(direction, focus));
+let insertWindow = (target, direction, focus) =>
+  updateTree(Layout.insertWindow(target, direction, focus));
+let removeWindow = target => updateTree(Layout.removeWindow(target));
 
 let move = (focus, dirX, dirY, layout) => {
   let positioned = Positioned.fromLayout(0, 0, 200, 200, layout);
@@ -43,7 +51,11 @@ type command =
 type msg =
   | HandleDragged({
       path: list(int),
-      delta: float,
+      delta: int,
+    })
+  | DimensionsChanged({
+      width: int,
+      height: int,
     })
   | Command(command);
 
@@ -51,41 +63,71 @@ type outmsg =
   | Nothing
   | Focus(int);
 
+let rotate = (direction, focus, model) => {
+  ...model,
+  tree: Layout.rotate(direction, focus, model.tree),
+};
+
+let resizeWindow = (direction, focus, delta, {width, height, tree} as model) => {
+  ...model,
+  tree: Layout.resizeWindow(~width, ~height, direction, focus, delta, tree),
+};
+
+let resizeSplit = (~path, ~delta, {width, height, tree} as model) => {
+  ...model,
+  tree: Layout.resizeSplit(~width, ~height, ~path, ~delta, tree),
+};
+
+let resetWeights = model => {
+  ...model,
+  tree: Layout.resetWeights(model.tree),
+};
+
 let update = (~focus, model, msg) => {
   switch (msg) {
+  | HandleDragged({path, delta}) => (
+      resizeSplit(~path, ~delta, model),
+      Nothing,
+    )
+
+  | DimensionsChanged({width, height}) => (
+      {...model, width, height},
+      Nothing,
+    )
+
   | Command(MoveLeft) =>
     switch (focus) {
-    | Some(focus) => (model, Focus(moveLeft(focus, model)))
+    | Some(focus) => (model, Focus(moveLeft(focus, model.tree)))
     | None => (model, Nothing)
     }
 
   | Command(MoveRight) =>
     switch (focus) {
-    | Some(focus) => (model, Focus(moveRight(focus, model)))
+    | Some(focus) => (model, Focus(moveRight(focus, model.tree)))
     | None => (model, Nothing)
     }
 
   | Command(MoveUp) =>
     switch (focus) {
-    | Some(focus) => (model, Focus(moveUp(focus, model)))
+    | Some(focus) => (model, Focus(moveUp(focus, model.tree)))
     | None => (model, Nothing)
     }
 
   | Command(MoveDown) =>
     switch (focus) {
-    | Some(focus) => (model, Focus(moveDown(focus, model)))
+    | Some(focus) => (model, Focus(moveDown(focus, model.tree)))
     | None => (model, Nothing)
     }
 
   | Command(RotateForward) =>
     switch (focus) {
-    | Some(focus) => (Layout.rotate(`Forward, focus, model), Nothing)
+    | Some(focus) => (rotate(`Forward, focus, model), Nothing)
     | None => (model, Nothing)
     }
 
   | Command(RotateBackward) =>
     switch (focus) {
-    | Some(focus) => (Layout.rotate(`Backward, focus, model), Nothing)
+    | Some(focus) => (rotate(`Backward, focus, model), Nothing)
     | None => (model, Nothing)
     }
 
@@ -93,8 +135,8 @@ let update = (~focus, model, msg) => {
     switch (focus) {
     | Some(focus) => (
         model
-        |> Layout.resizeWindow(`Horizontal, focus, 0.95)
-        |> Layout.resizeWindow(`Vertical, focus, 0.95),
+        |> resizeWindow(`Horizontal, focus, -10)
+        |> resizeWindow(`Vertical, focus, -10),
         Nothing,
       )
     | None => (model, Nothing)
@@ -104,8 +146,8 @@ let update = (~focus, model, msg) => {
     switch (focus) {
     | Some(focus) => (
         model
-        |> Layout.resizeWindow(`Horizontal, focus, 1.05)
-        |> Layout.resizeWindow(`Vertical, focus, 1.05),
+        |> resizeWindow(`Horizontal, focus, 10)
+        |> resizeWindow(`Vertical, focus, 10),
         Nothing,
       )
     | None => (model, Nothing)
@@ -114,7 +156,7 @@ let update = (~focus, model, msg) => {
   | Command(DecreaseHorizontalSize) =>
     switch (focus) {
     | Some(focus) => (
-        model |> Layout.resizeWindow(`Horizontal, focus, 0.95),
+        model |> resizeWindow(`Horizontal, focus, -10),
         Nothing,
       )
     | None => (model, Nothing)
@@ -123,7 +165,7 @@ let update = (~focus, model, msg) => {
   | Command(IncreaseHorizontalSize) =>
     switch (focus) {
     | Some(focus) => (
-        model |> Layout.resizeWindow(`Horizontal, focus, 1.05),
+        model |> resizeWindow(`Horizontal, focus, 10),
         Nothing,
       )
     | None => (model, Nothing)
@@ -131,28 +173,17 @@ let update = (~focus, model, msg) => {
 
   | Command(DecreaseVerticalSize) =>
     switch (focus) {
-    | Some(focus) => (
-        model |> Layout.resizeWindow(`Vertical, focus, 0.95),
-        Nothing,
-      )
+    | Some(focus) => (model |> resizeWindow(`Vertical, focus, -10), Nothing)
     | None => (model, Nothing)
     }
 
   | Command(IncreaseVerticalSize) =>
     switch (focus) {
-    | Some(focus) => (
-        model |> Layout.resizeWindow(`Vertical, focus, 1.05),
-        Nothing,
-      )
+    | Some(focus) => (model |> resizeWindow(`Vertical, focus, 10), Nothing)
     | None => (model, Nothing)
     }
 
-  | Command(ResetSizes) => (Layout.resetWeights(model), Nothing)
-
-  | HandleDragged({path, delta}) => (
-      Layout.resizeSplit(~path, ~delta, model),
-      Nothing,
-    )
+  | Command(ResetSizes) => (resetWeights(model), Nothing)
   };
 };
 
@@ -238,8 +269,6 @@ module View = {
           ) => {
     switch (node.kind) {
     | `Split(direction, children) =>
-      let parent = node;
-
       let rec loop = (index, children) => {
         let path = [index, ...path];
 
@@ -249,12 +278,10 @@ module View = {
 
         | [node, ...[_, ..._] as rest] =>
           let onDrag = delta => {
-            let total =
-              direction == `Vertical ? parent.meta.width : parent.meta.height;
             dispatch(
               HandleDragged({
                 path: List.rev(path),
-                delta: delta /. float(total) // normalized
+                delta: int_of_float(delta),
               }),
             );
           };
@@ -282,32 +309,22 @@ module View = {
     };
   };
 
-  let component = React.Expert.component("Feature_Layout.View");
-  let make = (~children as renderWindow, ~model, ~theme, ~dispatch, ()) =>
-    component(hooks => {
-      let ((maybeDimensions, setDimensions), hooks) =
-        Hooks.state(None, hooks);
-      let children =
-        switch (maybeDimensions) {
-        | Some((width, height)) =>
-          let positioned = Positioned.fromLayout(0, 0, width, height, model);
+  let make = (~children as renderWindow, ~model, ~theme, ~dispatch, ()) => {
+    let children = {
+      let positioned =
+        Positioned.fromLayout(0, 0, model.width, model.height, model.tree);
 
-          <nodeView theme node=positioned renderWindow dispatch />;
+      <nodeView theme node=positioned renderWindow dispatch />;
+    };
 
-        | None => React.empty
-        };
-
-      (
-        <View
-          onDimensionsChanged={dim =>
-            setDimensions(_ => Some((dim.width, dim.height)))
-          }
-          style=Styles.container>
-          children
-        </View>,
-        hooks,
-      );
-    });
+    <View
+      onDimensionsChanged={({width, height}) =>
+        dispatch(DimensionsChanged({width, height}))
+      }
+      style=Styles.container>
+      children
+    </View>;
+  };
 };
 
 module Commands = {

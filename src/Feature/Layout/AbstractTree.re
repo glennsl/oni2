@@ -8,13 +8,13 @@ type node('id, 'meta) = {
 };
 
 module DSL = {
-  let split = (~meta, direction, children) => {
+  let split = (meta, direction, children) => {
     meta,
     kind: `Split((direction, children)),
   };
-  let vsplit = (~meta, children) => split(~meta, `Vertical, children);
-  let hsplit = (~meta, children) => split(~meta, `Horizontal, children);
-  let window = (~meta, id) => {meta, kind: `Window(id)};
+  let vsplit = (meta, children) => split(meta, `Vertical, children);
+  let hsplit = (meta, children) => split(meta, `Horizontal, children);
+  let window = (meta, id) => {meta, kind: `Window(id)};
 
   let withMetadata = (meta, node) => {...node, meta};
 };
@@ -43,6 +43,26 @@ let rec windows = node =>
   | `Window(id) => [id]
   | `Split(_, children) => children |> List.map(windows) |> List.concat
   };
+
+let pathToWindow = (targetId, node) => {
+  let rec traverse = (path, node) =>
+    switch (node.kind) {
+    | `Split(_, children) => traverseChildren(path, 0, children)
+    | `Window(id) when id == targetId => Some(List.rev(path))
+    | `Window(_) => None
+    }
+
+  and traverseChildren = (path, i) =>
+    fun
+    | [] => None
+    | [child, ...rest] =>
+      switch (traverse([i, ...path], child)) {
+      | None => traverseChildren(path, i + 1, rest)
+      | match => match
+      };
+
+  traverse([], node);
+};
 
 let rec rotate = (direction, targetId, node) => {
   let rotateList =
@@ -75,9 +95,9 @@ let%test_module "rotate" =
    {
      module DSL = {
        include DSL;
-       let hsplit = hsplit(~meta=());
-       let vsplit = vsplit(~meta=());
-       let window = window(~meta=());
+       let hsplit = hsplit();
+       let vsplit = vsplit();
+       let window = window();
      };
      open DSL;
 
