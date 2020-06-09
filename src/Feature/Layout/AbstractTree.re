@@ -19,7 +19,7 @@ module DSL = {
   let withMetadata = (meta, node) => {...node, meta};
   let withChildren = (children, node) =>
     switch (node.kind) {
-    | `Split(direction, _) => {...node, kind: `Split(direction, children) }
+    | `Split(direction, _) => {...node, kind: `Split((direction, children))}
     | `Window(_) => node
     };
 };
@@ -49,24 +49,21 @@ let rec windows = node =>
   | `Split(_, children) => children |> List.map(windows) |> List.concat
   };
 
-let pathToWindow = (targetId, node) => {
+let path = (targetId, node) => {
+  exception Found(list(int));
+
   let rec traverse = (path, node) =>
     switch (node.kind) {
-    | `Split(_, children) => traverseChildren(path, 0, children)
-    | `Window(id) when id == targetId => Some(List.rev(path))
-    | `Window(_) => None
-    }
+    | `Split(_, children) =>
+      List.iteri(i => traverse([i, ...path]), children)
+    | `Window(id) when id == targetId => raise(Found(List.rev(path)))
+    | `Window(_) => ()
+    };
 
-  and traverseChildren = (path, i) =>
-    fun
-    | [] => None
-    | [child, ...rest] =>
-      switch (traverse([i, ...path], child)) {
-      | None => traverseChildren(path, i + 1, rest)
-      | match => match
-      };
-
-  traverse([], node);
+  switch (traverse([], node)) {
+  | () => None
+  | exception (Found(path)) => Some(path)
+  };
 };
 
 let rec rotate = (direction, targetId, node) => {
