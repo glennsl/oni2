@@ -221,6 +221,7 @@
     "@opam/ppx_inline_test": "v0.13.1",
     "@opam/ppx_let": "v0.13.0",
     "@opam/ppxlib": ">=0.10.0",
+    "@opam/pvec": "dbuenzli/pvec:opam#383dcc1",
     "@opam/re": "*",
     "@opam/reason": "^3.6.0",
     "@opam/uucp": "*",

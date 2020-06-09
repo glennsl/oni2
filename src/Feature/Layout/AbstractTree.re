@@ -2,7 +2,7 @@
 type node('id, 'meta) = {
   meta: 'meta,
   kind: [
-    | `Split([ | `Horizontal | `Vertical], list(node('id, 'meta)))
+    | `Split([ | `Horizontal | `Vertical], Pvec.t(node('id, 'meta)))
     | `Window('id)
   ],
 };
@@ -10,78 +10,74 @@ type node('id, 'meta) = {
 module DSL = {
   let split = (meta, direction, children) => {
     meta,
-    kind: `Split((direction, children)),
+    kind: `Split((direction, children |> Pvec.of_list)),
   };
   let vsplit = (meta, children) => split(meta, `Vertical, children);
   let hsplit = (meta, children) => split(meta, `Horizontal, children);
   let window = (meta, id) => {meta, kind: `Window(id)};
 
   let withMetadata = (meta, node) => {...node, meta};
+  let withChildren = (children, node) =>
+    switch (node.kind) {
+    | `Split(direction, _) => {...node, kind: `Split(direction, children) }
+    | `Window(_) => node
+    };
 };
 
 let rec fold = (f, acc, node) =>
   switch (node.kind) {
   | `Window(_) => f(node, acc)
-  | `Split(_, children) => List.fold_left(fold(f), acc, children)
+  | `Split(_, children) => Pvec.fold_left(fold(f), acc, children)
   };
 
 let rec map = (f, node) =>
   switch (node.kind) {
   | `Window(_) => f(node)
   | `Split(direction, children) =>
-    f({...node, kind: `Split((direction, List.map(map(f), children)))})
+    f({...node, kind: `Split((direction, Pvec.map(map(f), children)))})
   };
 
 let rec windowNodes = node =>
   switch (node.kind) {
-  | `Window(_) => [node]
-  | `Split(_, children) => children |> List.map(windowNodes) |> List.concat
+  | `Window(_) => Pvec.singleton(node)
+  | `Split(_, children) => children |> Pvec.map(windowNodes) |> Pvec.concat
   };
 
 let rec windows = node =>
   switch (node.kind) {
-  | `Window(id) => [id]
-  | `Split(_, children) => children |> List.map(windows) |> List.concat
+  | `Window(id) => Pvec.singleton(id)
+  | `Split(_, children) => children |> Pvec.map(windows) |> Pvec.concat
   };
 
-let pathToWindow = (targetId, node) => {
+let path = (targetId, node) => {
+  exception Found(list(int));
+  
   let rec traverse = (path, node) =>
     switch (node.kind) {
-    | `Split(_, children) => traverseChildren(path, 0, children)
-    | `Window(id) when id == targetId => Some(List.rev(path))
-    | `Window(_) => None
-    }
+    | `Split(_, children) => 
+      Pvec.iteri_left(i => traverse([i, ...path]), children)
+    | `Window(id) when id == targetId => raise(Found(List.rev(path)))
+    | `Window(_) => ()
+    };
 
-  and traverseChildren = (path, i) =>
-    fun
-    | [] => None
-    | [child, ...rest] =>
-      switch (traverse([i, ...path], child)) {
-      | None => traverseChildren(path, i + 1, rest)
-      | match => match
-      };
-
-  traverse([], node);
+  switch (traverse([], node)) {
+  | () => None
+  | exception Found(path) => Some(path)
+  };
 };
 
 let rec rotate = (direction, targetId, node) => {
-  let rotateList =
-    fun
-    | [] => []
-    | [a] => [a]
-    | [a, b] => [b, a]
-    | [head, ...tail] => tail |> List.rev |> List.cons(head) |> List.rev;
-
   switch (node.kind) {
-  | `Split(dir, children) =>
+   |`Split(dir, children) =>
     let children =
-      if (List.exists(child => child.kind == `Window(targetId), children)) {
+      if (Pvec.exists(child => child.kind == `Window(targetId), children)) {
+        let len = Pvec.length(children);
         switch (direction) {
-        | `Backward => children |> rotateList
-        | `Forward => children |> List.rev |> rotateList |> List.rev
+        | `Backward => Pvec.init(~len, i => Pvec.get(children, (i - 1) mod len))
+        | `Forward => Pvec.init(~len, i => Pvec.get(children, (i + 1) mod len))
         };
       } else {
-        List.map(rotate(direction, targetId), children);
+        Pvec.map(rotate(direction, targetId), children);
       };
 
     {...node, kind: `Split((dir, children))};

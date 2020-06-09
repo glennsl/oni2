@@ -1,5 +1,5 @@
 {
-  "checksum": "c79f5bc510ccd35c0425f1df6b263e65",
+  "checksum": "850a6f8d8bd4576010671bd984c991bc",
   "root": "Oni2@link-dev:./package.json",
   "node": {
     "yarn-pkg-config@github:esy-ocaml/yarn-pkg-config#db3a0b63883606dd57c54a7158d560d6cba8cd79@d41d8cd9": {
@@ -1058,6 +1058,7 @@
         "@opam/yojson@github:onivim/yojson:yojson.opam#f480aef@d41d8cd9",
         "@opam/uutf@opam:1.0.2@4440868f", "@opam/uucp@opam:13.0.0@e9b515e0",
         "@opam/reason@opam:3.6.0@2da53ff9", "@opam/re@opam:1.9.0@d4d5e13d",
+        "@opam/pvec@github:dbuenzli/pvec:opam#383dcc1@d41d8cd9",
         "@opam/ppxlib@opam:0.13.0@65a9c7cc",
         "@opam/ppx_let@opam:v0.13.0@5703d2be",
         "@opam/ppx_inline_test@opam:v0.13.1@45efd1b1",
@@ -1603,6 +1604,23 @@
         "ocaml@4.9.1000@d41d8cd9", "@opam/seq@opam:base@d8d7de1d",
         "@opam/dune@opam:2.5.0@aef1678b"
       ]
+    },
+    "@opam/pvec@github:dbuenzli/pvec:opam#383dcc1@d41d8cd9": {
+      "id": "@opam/pvec@github:dbuenzli/pvec:opam#383dcc1@d41d8cd9",
+      "name": "@opam/pvec",
+      "version": "github:dbuenzli/pvec:opam#383dcc1",
+      "source": {
+        "type": "install",
+        "source": [ "github:dbuenzli/pvec:opam#383dcc1" ]
+      },
+      "overrides": [],
+      "dependencies": [
+        "@opam/topkg@opam:1.0.1@a42c631e",
+        "@opam/ocamlfind@opam:1.8.1@ff07b0f9",
+        "@opam/ocamlbuild@opam:0.14.0@6ac75d03",
+        "@esy-ocaml/substs@0.0.1@d41d8cd9"
+      ],
+      "devDependencies": []
     },
     "@opam/ptime@opam:0.8.5@0051d642": {
       "id": "@opam/ptime@opam:0.8.5@0051d642",

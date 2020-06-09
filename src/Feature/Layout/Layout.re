@@ -53,6 +53,7 @@ module DSL = {
     );
 
   let withSize = (size, node) => node |> withMetadata({...node.meta, size});
+  let withChildren = withChildren;
 };
 
 include DSL;
@@ -66,16 +67,16 @@ let singleton = id => vsplit([window(id)]);
  */
 let addWindow = (direction, idToInsert, tree) => {
   switch (tree.kind) {
-  | `Split(_, []) => window(~size=tree.meta.size, idToInsert)
-
-  | `Split(thisDirection, [firstChild, ...remainingChildren])
-      when thisDirection != direction =>
+  | `Split(thisDirection, children) when Pvec.is_empty(children) =>
+    window(~size=tree.meta.size, idToInsert)
+    
+  | `Split(thisDirection, children) when thisDirection != direction =>
     split(
       ~size=tree.meta.size,
       thisDirection,
       [
-        split(direction, [window(idToInsert), firstChild]),
-        ...remainingChildren,
+        split(direction, [window(idToInsert), Pvec.get_first(children)]),
+        ...Pvec.to_list(children),
       ],
     )
 
@@ -83,7 +84,7 @@ let addWindow = (direction, idToInsert, tree) => {
     split(
       ~size=tree.meta.size,
       thisDirection,
-      [window(idToInsert), ...children],
+      [window(idToInsert), ...Pvec.to_list(children)],
     )
 
   | `Window(id) =>
@@ -115,63 +116,83 @@ let%test_module "addWindow" =
 /**
  * insertWindow
  */
-let insertWindow = (position, direction, idToInsert, tree) => {
+let insertWindow = (position, insertDirection, idToInsert, tree) => {
   let `Before(targetId) | `After(targetId) = position;
 
+//  exception Found(int);
+  
   let splitWindow = node =>
     split(
       ~size=node.meta.size,
-      direction,
+      insertDirection,
       switch (position) {
       | `Before(_) => [window(idToInsert), node |> withSize(1.)]
       | `After(_) => [node |> withSize(1.), window(idToInsert)]
       },
     );
 
-  let rec traverse = node =>
-    switch (node.kind) {
-    | `Split(_, []) => {...node, kind: `Window(idToInsert)} // HACK: to work around this being intially called with an idea that doesn't yet exist in the tree
-    | `Split(thisDirection, children) when thisDirection == direction =>
-      let onMatch = child =>
-        switch (position) {
-        | `Before(_) => [window(idToInsert), child]
-        | `After(_) => [child, window(idToInsert)]
-        };
-      split(
-        ~size=node.meta.size,
-        thisDirection,
-        traverseChildren(~onMatch, [], children),
-      );
+//  let rec traverse = (i, node) =>
+//    switch (node.kind) {
+//    | `Split(direction, children) => 
+//      switch (Pvec.mapi(i => traverse(i), children)) {
+//      | children => node |> withChildren(children)
+//      
+//      | exception Found(i) when direction == insertDirection => 
+//        let i =
+//          switch (position) {
+//          | `Before(_) => i - 1
+//          | `After(_) => i
+//          };
+//        node |> withChildren(Pvec.splice(~into=children, ~first=i, Pvec.singleton(window(idToInsert))))
+//        
+//      | exception Found(i) when direction == insertDirection => 
+//        // replace with split
+//      }
+//    | `Window(id) when id == targetId => raise(Found(i))
+//    | `Window(_) => ()
+//    };
+//
+//  try(traverse(tree)) {
+//  | Found()
+//  };
 
-    | `Split(thisDirection, children) =>
-      let onMatch = node => [splitWindow(node)];
-      split(
-        ~size=node.meta.size,
-        thisDirection,
-        traverseChildren(~onMatch, [], children),
-      );
+  let replace = (i, node, nodes) =>
+    Pvec.splice(~into=nodes, ~first=i, ~last=i, Pvec.singleton(node));
 
-    | `Window(id) when id == targetId => splitWindow(node)
+  let insertBefore = (i, node, nodes) =>
+    Pvec.splice(~into=nodes, ~first=i-1, Pvec.singleton(node));
+  
+  let insertAfter = (i, node, nodes) =>
+    Pvec.splice(~into=nodes, ~first=i, Pvec.singleton(node));
 
-    | `Window(_) => node
-    }
+  let rec traverse = (path, node) =>
+    switch (path, node.kind) {
+    | ([], _) => splitWindow(node)
+    
+    | ([i], `Split(direction, children)) when direction == insertDirection => 
+        let children =
+          switch (position) {
+          | `Before(_) => insertBefore(i, window(idToInsert), children)
+          | `After(_) => insertAfter(i, window(idToInsert), children)
+          };
+        node |> withChildren(children)
 
-  and traverseChildren = (~onMatch, before, after) =>
-    switch (after) {
-    | [] => List.rev(before)
-    | [child, ...rest] =>
-      switch (child.kind) {
-      | `Window(id) when id == targetId =>
-        traverseChildren(~onMatch, List.rev(onMatch(child)) @ before, rest)
-
-      | `Window(_) => traverseChildren(~onMatch, [child, ...before], rest)
-
-      | `Split(_) =>
-        traverseChildren(~onMatch, [traverse(child), ...before], rest)
+    | ([i, ...rest], `Split(_, children)) =>
+      switch (Pvec.el(children, i)) {
+      | Some(child) => 
+        let children = replace(i, traverse(rest, child), children);
+        node |> withChildren(children)
+      | None => node
       }
-    };
 
-  traverse(tree);
+    // shouldn't happen
+    | (_, `Window(_)) => node
+    };
+  
+  switch (AbstractTree.path(targetId, tree)) {
+  | Some(path) => traverse(path, tree)
+  | None => tree
+  }
 };
 
 let%test_module "insertWindow" =
@@ -205,12 +226,15 @@ let removeWindow = (target, tree) => {
   let rec traverse = node =>
     switch (node.kind) {
     | `Split(direction, children) =>
-      switch (List.filter_map(traverse, children)) {
-      | [] => None
-      // BUG: Collapsing disabled as it doesn't preserve size properly.
-      // | [child] => Some(child)
-      | newChildren =>
-        Some(split(~size=node.meta.size, direction, newChildren))
+      let children = Pvec.filter_map(traverse, children);
+      
+      if (Pvec.is_empty(children)) {
+        None
+//      } else if (Pvec.length(children) == 1) {
+//        // BUG: Collapsing disabled as it doesn't preserve size properly.
+//        Some(Pvec.get(children, 0))
+      } else {
+        Some(node |> withChildren(children))
       }
     | `Window(id) when id == target => None
     | `Window(_) => Some(node)
@@ -255,8 +279,8 @@ let%test_module "removeWindow" =
 open {
        let totalWeight = nodes =>
          nodes
-         |> List.map(child => child.meta.size)
-         |> List.fold_left((+.), 0.)
+         |> Pvec.map(child => child.meta.size)
+         |> Pvec.fold_left((+.), 0.)
          |> max(1.);
 
        /**
@@ -269,38 +293,34 @@ open {
         */
        let shiftWeightRight = (~available, ~delta, index, nodes) => {
          let unitSize = float(available) /. totalWeight(nodes);
+         let delta = float(delta);
 
-         let rec loop = i =>
-           fun
-           | [] => []
-           | [node] => [node]
-           | [node, next, ...rest] when i == index => {
-               let delta = float(delta);
-               let weight = node.meta.size;
-               let size = weight *. unitSize;
-               let nextWeight = next.meta.size;
-               let nextSize = nextWeight *. unitSize;
+         if (index >= Pvec.length(nodes) - 1) {
+            nodes
+         } else {
+            let node = Pvec.get(nodes, index);
+            let next = Pvec.get(nodes, index);
+               
+             let weight = node.meta.size;
+             let size = weight *. unitSize;
+             let nextWeight = next.meta.size;
+             let nextSize = nextWeight *. unitSize;
 
-               let delta =
-                 if (size +. delta < node.meta.minWidth) {
-                   min(0., -. (size -. node.meta.minWidth));
-                 } else if (nextSize -. delta < next.meta.minWidth) {
-                   max(0., nextSize -. next.meta.minWidth);
-                 } else {
-                   delta;
-                 };
+             let delta =
+               if (size +. delta < node.meta.minWidth) {
+                 min(0., -. (size -. node.meta.minWidth));
+               } else if (nextSize -. delta < next.meta.minWidth) {
+                 max(0., nextSize -. next.meta.minWidth);
+               } else {
+                 delta;
+               };
 
-               let deltaWeight = delta /. unitSize;
-
-               [
-                 node |> withSize(weight +. deltaWeight),
-                 next |> withSize(nextWeight -. deltaWeight),
-                 ...rest,
-               ];
-             }
-           | [node, ...rest] => [node, ...loop(i + 1, rest)];
-
-         loop(0, nodes);
+             let deltaWeight = delta /. unitSize;
+                 
+             let nodes = Pvec.set(nodes, index, node |> withSize(weight +. deltaWeight));
+             let nodes = Pvec.set(nodes, index + 1, next |> withSize(weight -. deltaWeight));
+             nodes;
+         }
        };
 
        let%test_module "shiftWeightRight" =
@@ -311,23 +331,23 @@ open {
 
               let unitSize = of_int(available) / totalWeight(nodes);
 
-              nodes
+              nodes |> Pvec.to_list
               |> List.map(node => node.meta.size * unitSize |> round |> to_int);
             };
 
             let%test "sanity check: sizes - even" =
-              sizes(~available=300, [window(1), window(2), window(3)])
+              sizes(~available=300, [window(1), window(2), window(3)] |> Pvec.of_list)
               == [100, 100, 100];
             let%test "sanity check: sizes - uneven" =
               sizes(
                 ~available=300,
-                [window(~size=0.95, 1), window(~size=1.05, 2), window(3)],
+                [window(~size=0.95, 1), window(~size=1.05, 2), window(3)] |> Pvec.of_list,
               )
               == [95, 105, 100];
 
             let%test "positive delta" = {
               let available = 600;
-              let initial = [window(1), window(2), window(3)];
+              let initial = [window(1), window(2), window(3)] |> Pvec.of_list;
 
               let actual =
                 initial |> shiftWeightRight(~available, ~delta=5, 1);
@@ -337,7 +357,7 @@ open {
 
             let%test "negative delta" = {
               let available = 600;
-              let initial = [window(1), window(2), window(3)];
+              let initial = [window(1), window(2), window(3)] |> Pvec.of_list;
 
               let actual =
                 initial |> shiftWeightRight(~available, ~delta=-5, 1);
@@ -347,7 +367,7 @@ open {
 
             let%test "inital at minimum" = {
               let available = 300;
-              let initial = [window(1), window(2), window(3)];
+              let initial = [window(1), window(2), window(3)] |> Pvec.of_list;
 
               let actual =
                 initial |> shiftWeightRight(~available, ~delta=5, 1);
@@ -357,7 +377,7 @@ open {
 
             let%test "initial below minimum" = {
               let available = 150;
-              let initial = [window(1), window(2), window(3)];
+              let initial = [window(1), window(2), window(3)] |> Pvec.of_list;
 
               let actual =
                 initial |> shiftWeightRight(~available, ~delta=5, 1);
@@ -367,7 +387,7 @@ open {
 
             let%test "initial below minimum - negative delta" = {
               let available = 150;
-              let initial = [window(1), window(2), window(3)];
+              let initial = [window(1), window(2), window(3)] |> Pvec.of_list;
 
               let actual =
                 initial |> shiftWeightRight(~available, ~delta=-5, 1);
@@ -377,7 +397,7 @@ open {
 
             let%test "delta > available" = {
               let available = 600;
-              let initial = [window(1), window(2), window(3)];
+              let initial = [window(1), window(2), window(3)] |> Pvec.of_list;
 
               let actual =
                 initial |> shiftWeightRight(~available, ~delta=700, 1);
@@ -388,38 +408,34 @@ open {
 
        let shiftWeightDown = (~available, ~delta, index, nodes) => {
          let unitSize = float(available) /. totalWeight(nodes);
+         let delta = float(delta);
 
-         let rec loop = i =>
-           fun
-           | [] => []
-           | [node] => [node]
-           | [node, next, ...rest] when i == index => {
-               let delta = float(delta);
-               let weight = node.meta.size;
-               let size = weight *. unitSize;
-               let nextWeight = next.meta.size;
-               let nextSize = nextWeight *. unitSize;
+         if (index >= Pvec.length(nodes) - 1) {
+            nodes
+         } else {
+            let node = Pvec.get(nodes, index);
+            let next = Pvec.get(nodes, index);
+               
+             let weight = node.meta.size;
+             let size = weight *. unitSize;
+             let nextWeight = next.meta.size;
+             let nextSize = nextWeight *. unitSize;
 
-               let delta =
-                 if (size +. delta < node.meta.minHeight) {
-                   min(0., -. (size -. node.meta.minHeight));
-                 } else if (nextSize -. delta < next.meta.minHeight) {
-                   max(0., nextSize -. next.meta.minHeight);
-                 } else {
-                   delta;
-                 };
+             let delta =
+               if (size +. delta < node.meta.minHeight) {
+                 min(0., -. (size -. node.meta.minHeight));
+               } else if (nextSize -. delta < next.meta.minHeight) {
+                 max(0., nextSize -. next.meta.minHeight);
+               } else {
+                 delta;
+               };
 
-               let deltaWeight = delta /. unitSize;
-
-               [
-                 node |> withSize(weight +. deltaWeight),
-                 next |> withSize(nextWeight -. deltaWeight),
-                 ...rest,
-               ];
-             }
-           | [node, ...rest] => [node, ...loop(i + 1, rest)];
-
-         loop(0, nodes);
+             let deltaWeight = delta /. unitSize;
+                 
+             let nodes = Pvec.set(nodes, index, node |> withSize(weight +. deltaWeight));
+             let nodes = Pvec.set(nodes, index + 1, next |> withSize(weight -. deltaWeight));
+             nodes;
+         }
        };
      };
 
