@@ -2,9 +2,10 @@ include AbstractTree;
 
 [@deriving show({with_path: false})]
 type metadata = {
-  size: float,
-  minWidth: float,
-  minHeight: float,
+  width: int,
+  height: int,
+  minWidth: int,
+  minHeight: int,
 };
 
 [@deriving show({with_path: false})]
@@ -15,48 +16,52 @@ type t('id) = AbstractTree.node('id, metadata);
 module DSL = {
   open AbstractTree.DSL;
 
-  let split = (~size=1., direction, children) => {
+  let split = (direction, children) => {
     let metadata =
       switch (direction) {
       | `Vertical => {
-          size,
+          width:
+            children |> List.map(c => c.meta.width) |> List.fold_left((+), 0),
+          height:
+            children |> List.map(c => c.meta.height) |> List.fold_left(max, 0),
           minWidth:
             children
             |> List.map(c => c.meta.minWidth)
-            |> List.fold_left((+.), 0.),
+            |> List.fold_left((+), 0),
           minHeight:
             children
             |> List.map(c => c.meta.minHeight)
-            |> List.fold_left(max, 0.),
+            |> List.fold_left(max, 0),
         }
       | `Horizontal => {
-          size,
+          width:
+            children |> List.map(c => c.meta.width) |> List.fold_left(max, 0),
+          height:
+            children |> List.map(c => c.meta.height) |> List.fold_left((+), 0),
           minWidth:
             children
             |> List.map(c => c.meta.minWidth)
-            |> List.fold_left(max, 0.),
+            |> List.fold_left(max, 0),
           minHeight:
             children
             |> List.map(c => c.meta.minHeight)
-            |> List.fold_left((+.), 0.),
+            |> List.fold_left((+), 0),
         }
       };
 
     split(metadata, direction, children);
   };
-  let vsplit = (~size=1., children) => split(~size, `Vertical, children);
-  let hsplit = (~size=1., children) => split(~size, `Horizontal, children);
-  let window = (~minWidth=100, ~minHeight=100, ~size=1., id) =>
+  let vsplit = children => split(`Vertical, children);
+  let hsplit = children => split(`Horizontal, children);
+  let window = (~minWidth=100, ~minHeight=100, ~width, ~height, id) =>
     window(
-      {size, minWidth: float(minWidth), minHeight: float(minHeight)},
+      {width, height, minWidth, minHeight},
       id,
     );
 
-  let withSize = (size, node) => node |> withMetadata({...node.meta, size});
   let withChildren = (children, node) =>
     switch (node.kind) {
-    | `Split(direction, _) =>
-      split(~size=node.meta.size, direction, children)
+    | `Split(direction, _) => split(direction, children)
     | `Window(_) => node
     };
 };
@@ -65,24 +70,56 @@ include DSL;
 
 let empty = vsplit([]);
 
-let singleton = id => vsplit([window(id)]);
+let rebelanceVertical = (~available, nodes) => {
+    let preTotal = nodes |> List.map(c => c.meta.width) |> List.fold_left((+), 0) |> float;
+    let minTotal = nodes |> List.map(c => c.meta.minWidth) |> List.fold_left((+), 0) |> float;
+    let postTotal = float(available);
+    let ditributable = max(0., postTotal -. minTotal);
+    
+    List.map(child => {
+      let min = float(child.meta.minWidth);
+      let width = float(child.meta.width);
+      let share =  width /. preTotal;
+      let newWidth =  min +. (ditributable *. share);
+
+      {...child, meta: {...child.meta, width: int_of_float(newWidth)}}
+    }, nodes);
+    
+  };
+
+let rebelanceHorizontal = (~available, nodes) => {
+    let preTotal = nodes |> List.map(c => c.meta.width) |> List.fold_left((+), 0) |> float;
+    let minTotal = nodes |> List.map(c => c.meta.minWidth) |> List.fold_left((+), 0) |> float;
+    let postTotal = float(available);
+    let ditributable = max(0., postTotal -. minTotal);
+    
+    List.map(child => {
+      let min = float(child.meta.minWidth);
+      let width = float(child.meta.width);
+      let share =  width /. preTotal;
+      let newWidth =  min +. (ditributable *. share);
+
+      {...child, meta: {...child.meta, width: int_of_float(newWidth)}}
+    }, nodes);
+    
+  };
 
 /**
  * addWindow
  */
 let addWindow = (insertDirection, idToInsert, tree) => {
   switch (tree.kind) {
-  | `Split(_, []) => window(~size=tree.meta.size, idToInsert)
+  | `Split(_, []) => window(~width=tree.meta.width, ~height=tree.meta.height, idToInsert)
 
   | `Split(direction, [firstChild, ...remainingChildren])
       when direction != insertDirection =>
-    split(
-      ~size=tree.meta.size,
-      direction,
+    let children = 
       [
         split(insertDirection, [window(idToInsert), firstChild]),
         ...remainingChildren,
       ],
+    split(
+      direction,
     )
 
   | `Split(direction, children) =>
